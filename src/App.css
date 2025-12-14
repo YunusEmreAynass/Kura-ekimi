@@ -156,6 +156,13 @@
   align-items: flex-start;
 }
 
+.config-panel__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
 .config-panel__header h2 {
   margin: 0;
   font-size: 1.4rem;
