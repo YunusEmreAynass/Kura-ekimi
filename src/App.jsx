@@ -68,6 +68,8 @@ function App() {
   const [activeTeamId, setActiveTeamId] = useState(null)
   const [isDrawing, setIsDrawing] = useState(false)
   const [hasUnsavedConfig, setHasUnsavedConfig] = useState(false)
+  const [fixtures, setFixtures] = useState(null)
+  const [isBulkDrawing, setIsBulkDrawing] = useState(false)
 
   const timersRef = useRef([])
   const revealedMapRef = useRef(revealedMap)
@@ -96,6 +98,14 @@ function App() {
     return revealed.length === entry.revealSequence.length
   }).length
   const isComplete = completedTeams === teamEntries.length && teamEntries.length > 0
+  // More tolerant completeness check (use Set and allow >= to avoid transient duplicates)
+  const allTeamsComplete =
+    teamEntries.length > 0 &&
+    teamEntries.every((entry) => {
+      const revealed = new Set(revealedMap[entry.team.id] || [])
+      const required = (entry.revealSequence && entry.revealSequence.length) || 0
+      return revealed.size >= required
+    })
 
   const currentEntry = activeTeamId ? teamMap[activeTeamId] : null
   const currentRevealedOpponents = currentEntry ? revealedMap[currentEntry.team.id] || [] : []
@@ -105,15 +115,21 @@ function App() {
     : null
   const currentPot = currentEntry
     ? potMeta[currentEntry.team.potId] || {
-        label: currentEntry.team.potLabel,
-        color: '#bae6fd',
-      }
+      label: currentEntry.team.potLabel,
+      color: '#bae6fd',
+    }
     : null
 
   const clearTimers = () => {
     timersRef.current.forEach((id) => clearTimeout(id))
     timersRef.current = []
   }
+
+  const sleep = (ms) =>
+    new Promise((resolve) => {
+      const id = setTimeout(() => resolve(), ms)
+      timersRef.current.push(id)
+    })
 
   const registerMatch = useCallback((teamAId, teamBId) => {
     if (!teamAId || !teamBId) {
@@ -235,11 +251,11 @@ function App() {
         pot.id !== potId
           ? pot
           : {
-              ...pot,
-              teams: pot.teams.map((team) =>
-                team.id !== teamId ? team : { ...team, name: value },
-              ),
-            },
+            ...pot,
+            teams: pot.teams.map((team) =>
+              team.id !== teamId ? team : { ...team, name: value },
+            ),
+          },
       ),
     )
     setHasUnsavedConfig(true)
@@ -299,6 +315,33 @@ function App() {
     startDrawForTeam(selectedTeamId)
   }
 
+  const handleBulkDraw = async () => {
+    if (isBulkDrawing) return
+    setIsBulkDrawing(true)
+    clearTimers()
+    setIsDrawing(false)
+    setActiveTeamId(null)
+    try {
+      const processed = new Set()
+      teamEntries.forEach((entry) => {
+        const teamId = entry.team.id
+          ; (entry.revealSequence || []).forEach((slot) => {
+            const opponentId = slot.opponent.id
+            const key = [teamId, opponentId].sort().join('|')
+            if (processed.has(key)) {
+              return
+            }
+            processed.add(key)
+            registerMatch(teamId, opponentId)
+          })
+      })
+      setActiveTeamId(null)
+    } finally {
+      setIsBulkDrawing(false)
+      clearTimers()
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -334,6 +377,14 @@ function App() {
           >
             Seçili Takım İçin Kura Çek
           </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={handleBulkDraw}
+            disabled={isDrawing || isBulkDrawing || teamEntries.length === 0}
+          >
+            Tümünü Toplu Çek
+          </button>
           <button type="button" className="btn btn--ghost" onClick={handleReset}>
             Sıfırla
           </button>
@@ -367,6 +418,59 @@ function App() {
             Kurası biten takımlar: {completedTeams} / {teamEntries.length}
           </span>
         </div>
+      </section>
+
+      <section className="fixtures-panel">
+        <header className="fixtures-header">
+          <h2>Fikstür</h2>
+          <div className="fixtures-controls">
+            <button
+              type="button"
+              className="btn btn--primary"
+              onClick={() => {
+                try {
+                  const fx = generateFixtures(revealedMap, teamEntries)
+                  setFixtures(fx)
+                } catch (err) {
+                  // Friendly feedback instead of hard crash
+                  // eslint-disable-next-line no-alert
+                  alert(err?.message || 'Fikstür oluşturulurken hata oluştu')
+                }
+              }}
+              disabled={teamEntries.length === 0 || !allTeamsComplete}
+            >
+              Fikstür Oluştur
+            </button>
+          </div>
+        </header>
+
+        {fixtures && fixtures.length > 0 ? (
+          <div className="fixtures-weeks">
+            {fixtures.map((week, wi) => (
+              <article key={wi} className="fixtures-week">
+                <h3>Hafta {wi + 1}</h3>
+                <ul>
+                  {week.slots.map((slot, si) => (
+                    <li key={si} className="fixture-item">
+                      <div className="fixture-time">{slot.day} {slot.time}</div>
+                      <div className="fixture-match">
+                        <strong>{slot.match.teamA.name}</strong>
+                        <span> - </span>
+                        <strong>{slot.match.teamB.name}</strong>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <p className="fixtures-empty">Fikstür oluşturulmadı. Tüm takımların kurası tamamlandığında aktifleşir.</p>
+        )}
+        <details className="fixtures-diagnostics" style={{ marginTop: 12 }}>
+          <summary>Fikstür Hata Ayıklama Bilgileri</summary>
+          <DiagnosticsBlock revealedMap={revealedMap} teamEntries={teamEntries} />
+        </details>
       </section>
 
       <section className="current-draw" aria-live="polite">
@@ -783,15 +887,315 @@ function createInitialRevealedMap(entries) {
   }, {})
 }
 
+function DiagnosticsBlock({ revealedMap, teamEntries }) {
+  const diag = computeFixtureDiagnostics(revealedMap, teamEntries)
+  return (
+    <div style={{ fontSize: 13 }}>
+      <div><strong>Toplam bulunan maçlar:</strong> {diag.totalMatches}</div>
+      <div><strong>Beklenen maçlar (özet):</strong> {diag.expectedMatches}</div>
+      <div><strong>Rebuilt eşleşmeler:</strong> {diag.rebuiltCount}</div>
+      <div style={{ marginTop: 8 }}><strong>Örnek eşleşmeler (ilk 12):</strong></div>
+      <ul>
+        {diag.sampleMatches.map((m, i) => (
+          <li key={i}>{m.teamA.name} — {m.teamB.name}</li>
+        ))}
+      </ul>
+      <div style={{ marginTop: 8 }}><strong>Takım bazlı durum (ilk 12):</strong></div>
+      <ul>
+        {diag.perTeam.slice(0, 12).map((t) => (
+          <li key={t.id}>{t.name}: revealed {t.revealed} / expected {t.expected}</li>
+        ))}
+      </ul>
+    </div>
+  )
+}
+
 function getNextRevealItem(entry, revealedMapObj) {
   const revealed = new Set(revealedMapObj[entry.team.id] || [])
   return entry.revealSequence.find((item) => !revealed.has(item.opponent.id)) || null
 }
 
+// Fixtures state and helpers
+let DEFAULT_SLOTS = null
+function getWeekSlots() {
+  if (DEFAULT_SLOTS) return DEFAULT_SLOTS
+  // order: Wed22, Wed23, Thu22, Thu23, Fri22, Fri23, Sat21, Sat22, Sat23, Sun21, Sun22, Sun23
+  const slots = [
+    { day: 'Çarşamba', time: '22:00-23:00' },
+    { day: 'Çarşamba', time: '23:00-00:00' },
+    { day: 'Perşembe', time: '22:00-23:00' },
+    { day: 'Perşembe', time: '23:00-00:00' },
+    { day: 'Cuma', time: '22:00-23:00' },
+    { day: 'Cuma', time: '23:00-00:00' },
+    { day: 'Cumartesi', time: '21:00-22:00' },
+    { day: 'Cumartesi', time: '22:00-23:00' },
+    { day: 'Cumartesi', time: '23:00-00:00' },
+    { day: 'Pazar', time: '21:00-22:00' },
+    { day: 'Pazar', time: '22:00-23:00' },
+    { day: 'Pazar', time: '23:00-00:00' },
+  ]
+  DEFAULT_SLOTS = slots
+  return slots
+}
+
+function buildUniqueMatchesFromMap(revealedMapObj, teamMap) {
+  const done = new Set()
+  const matches = []
+  Object.keys(revealedMapObj).forEach((teamId) => {
+    const opponents = revealedMapObj[teamId] || []
+    opponents.forEach((oppId) => {
+      const key = [teamId, oppId].sort().join('|')
+      if (!done.has(key)) {
+        done.add(key)
+        matches.push({ teamA: teamMap[teamId].team, teamB: teamMap[oppId].team })
+      }
+    })
+  })
+  return matches
+}
+
+function shuffleArray(a) {
+  for (let i = a.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1))
+      ;[a[i], a[j]] = [a[j], a[i]]
+  }
+  return a
+}
+
+function generateFixtures(revealedMapObj, teamEntriesList) {
+  // Build unique matches
+  const teamMapLocal = teamEntriesList.reduce((acc, e) => {
+    acc[e.team.id] = e
+    return acc
+  }, {})
+  let allMatches = buildUniqueMatchesFromMap(revealedMapObj, teamMapLocal)
+
+  const totalMatches = allMatches.length
+  const weeks = 6
+  const matchesPerWeek = totalMatches / weeks
+
+  const expectedMatches =
+    teamEntriesList.reduce((acc, e) => acc + ((e.revealSequence && e.revealSequence.length) || 0), 0) / 2
+
+  if (!Number.isInteger(matchesPerWeek)) {
+    throw new Error('Beklenmeyen toplam maç sayısı; haftalara eşit dağıtılamıyor')
+  }
+
+  if (Math.round(expectedMatches) !== expectedMatches) {
+    throw new Error('Takım başına düşen maç sayısı beklenenden farklı')
+  }
+
+  if (expectedMatches !== totalMatches) {
+    // attempt to rebuild matches from teamEntries (authoritative revealSequence)
+    const rebuilt = []
+    const seen = new Set()
+    teamEntriesList.forEach((entry) => {
+      const a = entry.team.id
+        ; (entry.revealSequence || []).forEach((slot) => {
+          const b = slot.opponent.id
+          const k = [a, b].sort().join('|')
+          if (!seen.has(k)) {
+            seen.add(k)
+            rebuilt.push({ teamA: teamMapLocal[a].team, teamB: teamMapLocal[b].team })
+          }
+        })
+    })
+
+    if (rebuilt.length === expectedMatches) {
+      allMatches = rebuilt
+    } else {
+      throw new Error(
+        `Eşleşme sayısı uyuşmuyor: beklenen ${expectedMatches}, bulunan ${totalMatches}. Rebuilt: ${rebuilt.length}`,
+      )
+    }
+  }
+
+  const matches = shuffleArray([...allMatches])
+  const teamIds = teamEntriesList.map((entry) => entry.team.id)
+  const matchKey = (a, b) => [a, b].sort().join('|')
+  const baseAdjacency = new Map()
+  const matchLookup = new Map()
+
+  matches.forEach((match) => {
+    const { teamA, teamB } = match
+    if (!baseAdjacency.has(teamA.id)) baseAdjacency.set(teamA.id, new Set())
+    if (!baseAdjacency.has(teamB.id)) baseAdjacency.set(teamB.id, new Set())
+    baseAdjacency.get(teamA.id).add(teamB.id)
+    baseAdjacency.get(teamB.id).add(teamA.id)
+    matchLookup.set(matchKey(teamA.id, teamB.id), match)
+  })
+
+  const cloneAdjacency = (source) => {
+    const clone = new Map()
+    source.forEach((set, teamId) => {
+      clone.set(teamId, new Set(set))
+    })
+    return clone
+  }
+
+  const maxAttempts = 200
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const adjacency = cloneAdjacency(baseAdjacency)
+    const weeksArr = []
+    let failed = false
+
+    for (let w = 0; w < weeks; w += 1) {
+      const result = buildWeekMatching(adjacency, matchLookup, teamIds)
+      if (!result) {
+        failed = true
+        break
+      }
+      weeksArr.push(result)
+    }
+
+    if (!failed && weeksArr.length === weeks) {
+      const slotsTemplate = getWeekSlots()
+      return weeksArr.map((weekMatches) => {
+        const slots = shuffleArray([...slotsTemplate])
+        return {
+          slots: slots.map((slot, i) => ({ day: slot.day, time: slot.time, match: weekMatches[i] })),
+        }
+      })
+    }
+  }
+
+  throw new Error('Fikstür oluşturulamadı; mükemmel dağıtım bulunamadı. Lütfen yeni kura oluşturmayı deneyin.')
+}
+
+function buildWeekMatching(adjacency, matchLookup, teamIds) {
+  const localAdj = new Map()
+  adjacency.forEach((set, teamId) => {
+    localAdj.set(teamId, new Set(set))
+  })
+
+  const unmatched = new Set(teamIds)
+  const matches = []
+  const usedEdges = []
+  let safetyCounter = 0
+  const maxSteps = 60000
+
+  const selectTeam = () => {
+    let chosen = null
+    let neighbors = []
+    let minDegree = Infinity
+    unmatched.forEach((teamId) => {
+      const opts = [...(localAdj.get(teamId) || [])].filter((opp) => unmatched.has(opp))
+      if (opts.length === 0) {
+        chosen = teamId
+        neighbors = []
+        minDegree = 0
+        return
+      }
+      if (opts.length < minDegree) {
+        chosen = teamId
+        neighbors = opts
+        minDegree = opts.length
+      }
+    })
+    return { teamId: chosen, neighbors }
+  }
+
+  const backtrack = () => {
+    safetyCounter += 1
+    if (safetyCounter > maxSteps) {
+      return false
+    }
+
+    if (unmatched.size === 0) {
+      return true
+    }
+
+    const { teamId, neighbors } = selectTeam()
+    if (!teamId || neighbors.length === 0) {
+      return false
+    }
+
+    const shuffled = shuffleArray([...neighbors])
+    for (const oppId of shuffled) {
+      if (!unmatched.has(oppId)) {
+        continue
+      }
+      const key = [teamId, oppId].sort().join('|')
+      const match = matchLookup.get(key)
+      if (!match) {
+        continue
+      }
+
+      matches.push(match)
+      usedEdges.push([teamId, oppId])
+      unmatched.delete(teamId)
+      unmatched.delete(oppId)
+      localAdj.get(teamId)?.delete(oppId)
+      localAdj.get(oppId)?.delete(teamId)
+
+      if (backtrack()) {
+        return true
+      }
+
+      unmatched.add(teamId)
+      unmatched.add(oppId)
+      matches.pop()
+      usedEdges.pop()
+      localAdj.get(teamId)?.add(oppId)
+      localAdj.get(oppId)?.add(teamId)
+    }
+
+    return false
+  }
+
+  const ok = backtrack()
+  if (!ok || matches.length !== teamIds.length / 2) {
+    return null
+  }
+
+  // Commit used edges to adjacency so they are removed for future weeks
+  usedEdges.forEach(([a, b]) => {
+    adjacency.get(a)?.delete(b)
+    adjacency.get(b)?.delete(a)
+  })
+
+  return matches
+}
+
+function computeFixtureDiagnostics(revealedMapObj, teamEntriesList) {
+  const teamMapLocal = teamEntriesList.reduce((acc, e) => {
+    acc[e.team.id] = e
+    return acc
+  }, {})
+
+  const allMatches = buildUniqueMatchesFromMap(revealedMapObj, teamMapLocal)
+  const totalMatches = allMatches.length
+  const expectedMatches =
+    teamEntriesList.reduce((acc, e) => acc + ((e.revealSequence && e.revealSequence.length) || 0), 0) / 2
+
+  // rebuilt from revealSequence
+  const rebuilt = []
+  const seen = new Set()
+  teamEntriesList.forEach((entry) => {
+    const a = entry.team.id
+      ; (entry.revealSequence || []).forEach((slot) => {
+        const b = slot.opponent.id
+        const k = [a, b].sort().join('|')
+        if (!seen.has(k)) {
+          seen.add(k)
+          rebuilt.push({ a, b })
+        }
+      })
+  })
+
+  const perTeam = teamEntriesList.map((entry) => ({
+    id: entry.team.id,
+    name: entry.team.name,
+    revealed: (revealedMapObj[entry.team.id] || []).length,
+    expected: (entry.revealSequence && entry.revealSequence.length) || 0,
+  }))
+
+  return { totalMatches, expectedMatches, rebuiltCount: rebuilt.length, sampleMatches: allMatches.slice(0, 12), perTeam }
+}
 function shuffle(array, rng = Math.random) {
   for (let i = array.length - 1; i > 0; i -= 1) {
     const j = Math.floor(rng() * (i + 1))
-    ;[array[i], array[j]] = [array[j], array[i]]
+      ;[array[i], array[j]] = [array[j], array[i]]
   }
   return array
 }
