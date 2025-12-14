@@ -68,6 +68,7 @@ function App() {
   const [activeTeamId, setActiveTeamId] = useState(null)
   const [isDrawing, setIsDrawing] = useState(false)
   const [hasUnsavedConfig, setHasUnsavedConfig] = useState(false)
+  const [isBulkDrawing, setIsBulkDrawing] = useState(false)
 
   const timersRef = useRef([])
   const revealedMapRef = useRef(revealedMap)
@@ -114,6 +115,12 @@ function App() {
     timersRef.current.forEach((id) => clearTimeout(id))
     timersRef.current = []
   }
+
+  const sleep = (ms) =>
+    new Promise((resolve) => {
+      const timerId = setTimeout(resolve, ms)
+      timersRef.current.push(timerId)
+    })
 
   const registerMatch = useCallback((teamAId, teamBId) => {
     if (!teamAId || !teamBId) {
@@ -299,6 +306,65 @@ function App() {
     startDrawForTeam(selectedTeamId)
   }
 
+  const handleBulkDraw = async (instant = false) => {
+    if (isBulkDrawing) {
+      return
+    }
+    setIsBulkDrawing(true)
+    clearTimers()
+    setIsDrawing(false)
+    setActiveTeamId(null)
+
+    try {
+      const processedKeys = new Set()
+
+      const revealForEntry = async (entry) => {
+        if (!instant) {
+          setActiveTeamId(entry.team.id)
+          await sleep(DRAW_SETTINGS.initialDelay)
+        }
+
+        for (const slot of entry.revealSequence) {
+          const key = [entry.team.id, slot.opponent.id].sort().join('|')
+          if (processedKeys.has(key)) {
+            continue
+          }
+          processedKeys.add(key)
+          registerMatch(entry.team.id, slot.opponent.id)
+          if (!instant) {
+            await sleep(DRAW_SETTINGS.revealDelay)
+          }
+        }
+
+        if (!instant) {
+          await sleep(DRAW_SETTINGS.teamPause)
+        }
+      }
+
+      if (instant) {
+        teamEntries.forEach((entry) => {
+          entry.revealSequence.forEach((slot) => {
+            const key = [entry.team.id, slot.opponent.id].sort().join('|')
+            if (processedKeys.has(key)) {
+              return
+            }
+            processedKeys.add(key)
+            registerMatch(entry.team.id, slot.opponent.id)
+          })
+        })
+      } else {
+        for (const entry of teamEntries) {
+          // eslint-disable-next-line no-await-in-loop
+          await revealForEntry(entry)
+        }
+      }
+    } finally {
+      setActiveTeamId(null)
+      setIsBulkDrawing(false)
+      clearTimers()
+    }
+  }
+
   return (
     <div className="app-shell">
       <header className="app-header">
@@ -333,6 +399,14 @@ function App() {
             disabled={!selectedTeamId || isDrawing}
           >
             Seçili Takım İçin Kura Çek
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => handleBulkDraw(true)}
+            disabled={isDrawing || isBulkDrawing || teamEntries.length === 0}
+          >
+            Tümünü Anında Çek
           </button>
           <button type="button" className="btn btn--ghost" onClick={handleReset}>
             Sıfırla
