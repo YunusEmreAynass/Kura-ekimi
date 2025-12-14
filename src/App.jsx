@@ -369,7 +369,7 @@ function App() {
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <h1>Şampiyonlar Ligi Kura Simülasyonu</h1>
+          <h1>İYTE CUP Kura Simülasyonu</h1>
           <p>
             Her takım üç torbadan da ikişer rakip çeker ve toplam 6 maç oynar.
             Rakipler bir kez karşılaşır, rövanş yoktur.
