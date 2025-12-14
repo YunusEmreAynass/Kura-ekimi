@@ -1,6 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 
+const MIXABLE_POT_TEAM_POOL = [
+  { id: 'amcaspor', name: 'AMCASPOR' },
+  { id: 'selcuksportshd-fc', name: 'SELCUKSPORTSHD FC' },
+  { id: 'hirkali-fc', name: 'HIRKALI FC' },
+  { id: 'karsiyaka-united', name: 'KARŞIYAKA UNITED' },
+  { id: 'alexis-tekpas-fc', name: 'ALEXIS TEKPAS FC' },
+  { id: 'strava-city', name: 'STRAVA CITY' },
+  { id: 'bayar-leverkuzen', name: 'BAYAR LEVERKUZEN' },
+  { id: 'black-eagles', name: 'BLACK EAGLES' },
+  { id: 'brooklyn', name: 'BROOKLYN' },
+  { id: '06-car-fc', name: '06 CAR FC' },
+  { id: 'cengaver-fc', name: 'CENGAVER FC' },
+  { id: 'squirting-lisbon', name: 'SQUIRTING LISBON' },
+  { id: 'fabrico-juniors', name: 'FABRICO JUNIORS' },
+  { id: 'baston-villa-fc', name: 'BASTON VILLA F.C.' },
+  { id: 'winchester-fc', name: 'WINCHESTER FC' },
+  { id: 'minako-fc', name: 'MINAKO FC' },
+]
+
+const DEFAULT_POT2_TEAMS = MIXABLE_POT_TEAM_POOL.slice(0, 8).map((team) => ({ ...team }))
+const DEFAULT_POT3_TEAMS = MIXABLE_POT_TEAM_POOL.slice(8).map((team) => ({ ...team }))
+
 const BASE_POTS = [
   {
     id: 'pot1',
@@ -8,14 +30,14 @@ const BASE_POTS = [
     color: '#1c7ed6',
     accent: '#74c0fc',
     teams: [
-      { id: 'man-city', name: 'Manchester City' },
-      { id: 'real-madrid', name: 'Real Madrid' },
-      { id: 'bayern', name: 'Bayern Munich' },
-      { id: 'psg', name: 'Paris Saint-Germain' },
-      { id: 'liverpool', name: 'Liverpool' },
-      { id: 'barcelona', name: 'Barcelona' },
-      { id: 'inter', name: 'Inter' },
-      { id: 'arsenal', name: 'Arsenal' },
+      { id: 'psv-ayidoven', name: 'PSV AYİDÖVEN' },
+      { id: 'cengover', name: 'CENGOVER FC' },
+      { id: 'code-galacticos', name: 'CODE GALACTICOS' },
+      { id: 'christina-aguilera', name: 'CHRISTINA AGUILERA' },
+      { id: 'neseli-ayaklar', name: 'NEŞELİ AYAKLAR' },
+      { id: 'kumru-fc', name: 'KUMRU FC' },
+      { id: 'armut-fc', name: 'ARMUT FC' },
+      { id: 'werder-weremem', name: 'WERDER WEREMEM' },
     ],
   },
   {
@@ -23,32 +45,14 @@ const BASE_POTS = [
     label: '2. Torba',
     color: '#12b886',
     accent: '#63e6be',
-    teams: [
-      { id: 'juventus', name: 'Juventus' },
-      { id: 'atletico', name: 'Atletico Madrid' },
-      { id: 'dortmund', name: 'Borussia Dortmund' },
-      { id: 'leipzig', name: 'RB Leipzig' },
-      { id: 'porto', name: 'Porto' },
-      { id: 'benfica', name: 'Benfica' },
-      { id: 'napoli', name: 'Napoli' },
-      { id: 'tottenham', name: 'Tottenham' },
-    ],
+    teams: DEFAULT_POT2_TEAMS,
   },
   {
     id: 'pot3',
     label: '3. Torba',
     color: '#f59f00',
     accent: '#ffd43b',
-    teams: [
-      { id: 'ajax', name: 'Ajax' },
-      { id: 'sevilla', name: 'Sevilla' },
-      { id: 'ac-milan', name: 'AC Milan' },
-      { id: 'lazio', name: 'Lazio' },
-      { id: 'shakhtar', name: 'Shakhtar Donetsk' },
-      { id: 'monaco', name: 'Monaco' },
-      { id: 'leverkusen', name: 'Bayer Leverkusen' },
-      { id: 'psv', name: 'PSV Eindhoven' },
-    ],
+    teams: DEFAULT_POT3_TEAMS,
   },
 ]
 
@@ -106,9 +110,9 @@ function App() {
     : null
   const currentPot = currentEntry
     ? potMeta[currentEntry.team.potId] || {
-        label: currentEntry.team.potLabel,
-        color: '#bae6fd',
-      }
+      label: currentEntry.team.potLabel,
+      color: '#bae6fd',
+    }
     : null
 
   const clearTimers = () => {
@@ -242,15 +246,39 @@ function App() {
         pot.id !== potId
           ? pot
           : {
-              ...pot,
-              teams: pot.teams.map((team) =>
-                team.id !== teamId ? team : { ...team, name: value },
-              ),
-            },
+            ...pot,
+            teams: pot.teams.map((team) =>
+              team.id !== teamId ? team : { ...team, name: value },
+            ),
+          },
       ),
     )
     setHasUnsavedConfig(true)
   }
+
+  const handleShuffleMidPots = useCallback(() => {
+    if (isDrawing) {
+      return
+    }
+
+    setPotsConfig((prev) => {
+      const shuffledPool = shuffle([...MIXABLE_POT_TEAM_POOL])
+      const pot2Teams = shuffledPool.slice(0, 8).map((team) => ({ ...team }))
+      const pot3Teams = shuffledPool.slice(8).map((team) => ({ ...team }))
+
+      return prev.map((pot) => {
+        if (pot.id === 'pot2') {
+          return { ...pot, teams: pot2Teams }
+        }
+        if (pot.id === 'pot3') {
+          return { ...pot, teams: pot3Teams }
+        }
+        return pot
+      })
+    })
+
+    setHasUnsavedConfig(true)
+  }, [isDrawing])
 
   const applyConfig = (nextConfig) => {
     const normalized = normalizePots(nextConfig)
@@ -275,7 +303,10 @@ function App() {
     clearTimers()
     setIsDrawing(false)
     setActiveTeamId(null)
-    const resetMap = createInitialRevealedMap(snapshot.teamEntries)
+    const basePots = clonePots(snapshot.pots)
+    const nextSnapshot = buildTournament(basePots)
+    setSnapshot(nextSnapshot)
+    const resetMap = createInitialRevealedMap(nextSnapshot.teamEntries)
     setRevealedMap(resetMap)
     revealedMapRef.current = resetMap
   }
@@ -420,6 +451,7 @@ function App() {
       <TeamConfigurator
         pots={potsConfig}
         onNameChange={handleTeamNameChange}
+        onShuffleMidPots={handleShuffleMidPots}
         onApply={handleApplyConfig}
         disabled={isDrawing}
         hasUnsavedChanges={hasUnsavedConfig}
@@ -643,22 +675,43 @@ function TeamCard({
   )
 }
 
-function TeamConfigurator({ pots, onNameChange, onApply, disabled, hasUnsavedChanges }) {
+function TeamConfigurator({
+  pots,
+  onNameChange,
+  onApply,
+  onShuffleMidPots,
+  disabled,
+  hasUnsavedChanges,
+}) {
   return (
     <section className="config-panel">
       <header className="config-panel__header">
         <div>
           <h2>Takım Düzenleyici</h2>
-          <p>İsimleri güncelle ve yeni kurayı uygula. Değişiklikler kaydedildikten sonra kura yeniden oluşturulur.</p>
+          <p>
+            İsimleri güncelle ve yeni kurayı uygula. İstersen 2. ve 3. torbadaki özel havuzu
+            "Torbaları Karıştır" butonuyla rastgele dağıtabilirsin. Değişiklikler kaydedildikten sonra kura
+            yeniden oluşturulur.
+          </p>
         </div>
-        <button
-          type="button"
-          className="btn btn--accent"
-          onClick={onApply}
-          disabled={disabled || !hasUnsavedChanges}
-        >
-          Değişiklikleri Uygula
-        </button>
+        <div className="config-panel__actions">
+          <button
+            type="button"
+            className="btn btn--primary"
+            onClick={() => onShuffleMidPots?.()}
+            disabled={disabled}
+          >
+            Torbaları Karıştır
+          </button>
+          <button
+            type="button"
+            className="btn btn--accent"
+            onClick={onApply}
+            disabled={disabled || !hasUnsavedChanges}
+          >
+            Değişiklikleri Uygula
+          </button>
+        </div>
       </header>
       <div className="config-grid">
         {pots.map((pot) => (
@@ -865,7 +918,7 @@ function getNextRevealItem(entry, revealedMapObj) {
 function shuffle(array, rng = Math.random) {
   for (let i = array.length - 1; i > 0; i -= 1) {
     const j = Math.floor(rng() * (i + 1))
-    ;[array[i], array[j]] = [array[j], array[i]]
+      ;[array[i], array[j]] = [array[j], array[i]]
   }
   return array
 }

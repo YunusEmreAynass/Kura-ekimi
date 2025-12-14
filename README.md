@@ -8,6 +8,7 @@ Bu proje, üç farklı torbada yer alan toplam 24 takım için Şampiyonlar Ligi
 - Her takım için her torbadan ikişer rakip ataması (toplam 6 maç)
 - Animasyonlu ve aşamalı kura sunumu (rakipler sırayla açıklanır)
 - Arayüz üzerinden takım isimlerini düzenleyip yalnızca seçilen takım için kura animasyonu başlatabilme
+- 2. ve 3. torbada yer alan 16 takımı tek tıkla rastgele iki torbaya bölen "Torbaları Karıştır" aracı
 - Eşleşmeler her iki takımın kartında eş zamanlı görünür, aktif kura kartı modal pencerede vurgulanır
 - Her takımın rakipleri torba bazında gruplandırılmış olarak gösterilir
 - Tek tıkla yeni kura üretme ve simülasyonu sıfırlama
